@@ -109,9 +109,17 @@ object CalendarStorage {
                     .collection("events")
                     .document(event.id)
                     .set(data)
+                    .addOnSuccessListener {
+                        Log.d(TAG, "Successfully synced event to Firestore: ${event.title}")
+                    }
+                    .addOnFailureListener { error ->
+                        Log.e(TAG, "Failed to sync event to Firestore", error)
+                    }
             } catch (e: Exception) {
                 Log.e(TAG, "Firestore save error", e)
             }
+        } else {
+            Log.w(TAG, "User ID is null; auth may not be complete yet.")
         }
     }
 
@@ -126,6 +134,12 @@ object CalendarStorage {
                     .collection("events")
                     .document(eventId)
                     .delete()
+                    .addOnSuccessListener {
+                        Log.d(TAG, "Successfully deleted event from Firestore: $eventId")
+                    }
+                    .addOnFailureListener { error ->
+                        Log.e(TAG, "Failed to delete event from Firestore", error)
+                    }
             } catch (e: Exception) {
                 Log.e(TAG, "Firestore delete error", e)
             }
