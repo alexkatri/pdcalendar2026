@@ -50,7 +50,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
 
     // Firebase Cloud Firestore & Auth
-    implementation(platform("com.google.firebase:firebase-bom:35.1.0"))
+    implementation(platform("com.google.firebase:firebase-bom:33.9.0"))
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-analytics")
