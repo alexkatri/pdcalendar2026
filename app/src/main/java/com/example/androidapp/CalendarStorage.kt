@@ -14,32 +14,30 @@ object CalendarStorage {
     private const val TAG = "CalendarStorage"
     private const val PREFS_NAME = "weekly_calendar_storage"
     private const val KEY_EVENTS = "calendar_events_json"
+    private const val COLLECTION_NAME = "calendar_events"
 
-    private fun getUserId(): String? {
-        return try {
-            FirebaseAuth.getInstance().currentUser?.uid
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    fun initAuth(onAuthComplete: () -> Unit) {
+    private fun getUserId(onUidReady: (String) -> Unit, onError: () -> Unit = {}) {
         try {
             val auth = FirebaseAuth.getInstance()
-            if (auth.currentUser == null) {
+            val user = auth.currentUser
+            if (user != null) {
+                onUidReady(user.uid)
+            } else {
                 auth.signInAnonymously()
                     .addOnCompleteListener { task ->
-                        if (task.isSuccessful) {
-                            Log.d(TAG, "Anonymous auth successful: ${auth.currentUser?.uid}")
+                        val uid = auth.currentUser?.uid
+                        if (task.isSuccessful && uid != null) {
+                            Log.d(TAG, "Signed in anonymously: $uid")
+                            onUidReady(uid)
+                        } else {
+                            Log.e(TAG, "Anonymous sign-in failed: ${task.exception?.message}", task.exception)
+                            onError()
                         }
-                        onAuthComplete()
                     }
-            } else {
-                onAuthComplete()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Auth init exception", e)
-            onAuthComplete()
+            Log.e(TAG, "FirebaseAuth exception: ${e.message}", e)
+            onError()
         }
     }
 
@@ -47,103 +45,103 @@ object CalendarStorage {
         context: Context,
         onEventsUpdated: (List<CalendarEvent>) -> Unit
     ) {
-        val uid = getUserId()
-        if (uid != null) {
-            try {
-                val db = FirebaseFirestore.getInstance()
-                db.collection("users")
-                    .document(uid)
-                    .collection("events")
-                    .addSnapshotListener { snapshot, error ->
-                        if (error != null) {
-                            Log.e(TAG, "Firestore listen error", error)
-                            onEventsUpdated(loadLocalEvents(context))
-                            return@addSnapshotListener
-                        }
-
-                        if (snapshot != null) {
-                            val events = snapshot.documents.mapNotNull { doc ->
-                                try {
-                                    val title = doc.getString("title") ?: return@mapNotNull null
-                                    val dateStr = doc.getString("date") ?: return@mapNotNull null
-                                    val hour = doc.getLong("hour")?.toInt() ?: return@mapNotNull null
-                                    val colorInt = doc.getLong("color")?.toInt() ?: return@mapNotNull null
-
-                                    CalendarEvent(
-                                        id = doc.id,
-                                        title = title,
-                                        date = LocalDate.parse(dateStr),
-                                        hour = hour,
-                                        color = Color(colorInt)
-                                    )
-                                } catch (_: Exception) {
-                                    null
-                                }
+        getUserId(
+            onUidReady = { uid ->
+                try {
+                    val db = FirebaseFirestore.getInstance()
+                    db.collection(COLLECTION_NAME)
+                        .whereEqualTo("userId", uid)
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                Log.e(TAG, "Firestore listen error: ${error.message}", error)
+                                onEventsUpdated(loadLocalEvents(context))
+                                return@addSnapshotListener
                             }
-                            saveLocalEvents(context, events)
-                            onEventsUpdated(events)
+
+                            if (snapshot != null) {
+                                val events = snapshot.documents.mapNotNull { doc ->
+                                    try {
+                                        val title = doc.getString("title") ?: return@mapNotNull null
+                                        val dateStr = doc.getString("date") ?: return@mapNotNull null
+                                        val hour = doc.getLong("hour")?.toInt() ?: return@mapNotNull null
+                                        val colorInt = doc.getLong("color")?.toInt() ?: return@mapNotNull null
+
+                                        CalendarEvent(
+                                            id = doc.id,
+                                            title = title,
+                                            date = LocalDate.parse(dateStr),
+                                            hour = hour,
+                                            color = Color(colorInt)
+                                        )
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                }
+                                saveLocalEvents(context, events)
+                                onEventsUpdated(events)
+                            }
                         }
-                    }
-                return
-            } catch (e: Exception) {
-                Log.e(TAG, "Firestore not initialized or available", e)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Firestore not available, loading local events", e)
+                    onEventsUpdated(loadLocalEvents(context))
+                }
+            },
+            onError = {
+                Log.w(TAG, "Auth unavailable, loading local events")
+                onEventsUpdated(loadLocalEvents(context))
             }
-        }
-        onEventsUpdated(loadLocalEvents(context))
+        )
     }
 
     fun saveEvent(context: Context, event: CalendarEvent) {
         saveLocalEvent(context, event)
-        val uid = getUserId()
-        if (uid != null) {
-            try {
-                val db = FirebaseFirestore.getInstance()
-                val data = hashMapOf(
-                    "title" to event.title,
-                    "date" to event.date.toString(),
-                    "hour" to event.hour,
-                    "color" to event.color.toArgb()
-                )
-                db.collection("users")
-                    .document(uid)
-                    .collection("events")
-                    .document(event.id)
-                    .set(data)
-                    .addOnSuccessListener {
-                        Log.d(TAG, "Successfully synced event to Firestore: ${event.title}")
-                    }
-                    .addOnFailureListener { error ->
-                        Log.e(TAG, "Failed to sync event to Firestore", error)
-                    }
-            } catch (e: Exception) {
-                Log.e(TAG, "Firestore save error", e)
+        getUserId(
+            onUidReady = { uid ->
+                try {
+                    val db = FirebaseFirestore.getInstance()
+                    val data = hashMapOf(
+                        "userId" to uid,
+                        "title" to event.title,
+                        "date" to event.date.toString(),
+                        "hour" to event.hour,
+                        "color" to event.color.toArgb()
+                    )
+                    db.collection(COLLECTION_NAME)
+                        .document(event.id)
+                        .set(data)
+                        .addOnSuccessListener {
+                            Log.d(TAG, "Successfully synced event to Firestore: ${event.title}")
+                        }
+                        .addOnFailureListener { error ->
+                            Log.e(TAG, "Failed to sync event to Firestore: ${error.message}", error)
+                        }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Firestore save error", e)
+                }
             }
-        } else {
-            Log.w(TAG, "User ID is null; auth may not be complete yet.")
-        }
+        )
     }
 
     fun deleteEvent(context: Context, eventId: String) {
         deleteLocalEvent(context, eventId)
-        val uid = getUserId()
-        if (uid != null) {
-            try {
-                val db = FirebaseFirestore.getInstance()
-                db.collection("users")
-                    .document(uid)
-                    .collection("events")
-                    .document(eventId)
-                    .delete()
-                    .addOnSuccessListener {
-                        Log.d(TAG, "Successfully deleted event from Firestore: $eventId")
-                    }
-                    .addOnFailureListener { error ->
-                        Log.e(TAG, "Failed to delete event from Firestore", error)
-                    }
-            } catch (e: Exception) {
-                Log.e(TAG, "Firestore delete error", e)
+        getUserId(
+            onUidReady = { _ ->
+                try {
+                    val db = FirebaseFirestore.getInstance()
+                    db.collection(COLLECTION_NAME)
+                        .document(eventId)
+                        .delete()
+                        .addOnSuccessListener {
+                            Log.d(TAG, "Successfully deleted event from Firestore: $eventId")
+                        }
+                        .addOnFailureListener { error ->
+                            Log.e(TAG, "Failed to delete event from Firestore: ${error.message}", error)
+                        }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Firestore delete error", e)
+                }
             }
-        }
+        )
     }
 
     private fun saveLocalEvent(context: Context, event: CalendarEvent) {

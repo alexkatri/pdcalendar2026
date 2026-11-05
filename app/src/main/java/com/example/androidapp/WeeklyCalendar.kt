@@ -95,11 +95,9 @@ fun WeeklyCalendarScreen(
     val events = remember { mutableStateListOf<CalendarEvent>() }
 
     LaunchedEffect(Unit) {
-        CalendarStorage.initAuth {
-            CalendarStorage.listenToEvents(context) { updatedEvents ->
-                events.clear()
-                events.addAll(updatedEvents)
-            }
+        CalendarStorage.listenToEvents(context) { updatedEvents ->
+            events.clear()
+            events.addAll(updatedEvents)
         }
     }
 
