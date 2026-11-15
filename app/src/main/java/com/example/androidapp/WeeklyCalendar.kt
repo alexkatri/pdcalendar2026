@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.annotation.Keep
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -63,6 +64,7 @@ private const val TOTAL_PAGES = 10000
 /**
  * Data model for an event in the weekly calendar.
  */
+@Keep
 data class CalendarEvent(
     val id: String = java.util.UUID.randomUUID().toString(),
     val title: String,
